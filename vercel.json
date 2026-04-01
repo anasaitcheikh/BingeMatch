@@ -4,7 +4,4 @@
   "outputDirectory": ".next",
   "devCommand": "next dev",
   "installCommand": "npm install",
-  "env": {
-    "TMDB_API_KEY": "@tmdb_api_key"
-  }
 }
