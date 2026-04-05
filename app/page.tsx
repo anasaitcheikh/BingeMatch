@@ -28,7 +28,7 @@ export default function App() {
       // Collect genre IDs from mood + themes
       const moodGenres = MOOD_TO_GENRES[mood] || MOOD_TO_GENRES.action;
       const themeGenres = themes.flatMap((t) => MOOD_TO_GENRES[t]?.[mediaType === "tv" ? "tv" : "movie"] || []);
-      const allGenres = [...new Set([...moodGenres[mediaType === "tv" ? "tv" : "movie"], ...themeGenres])];
+      const allGenres = Array.from(new Set([...moodGenres[mediaType === "tv" ? "tv" : "movie"], ...themeGenres]));
 
       const endpoint = answers.mediaType === "anime"
         ? "/api/tmdb?action=anime"
