@@ -33,7 +33,7 @@ export default function HomeView() {
   return (
     <div className="min-h-screen">
       {/* HERO */}
-      <div className="relative h-screen overflow-hidden">
+      {/* <div className="relative h-screen overflow-hidden">
         {hero?.backdrop_path && (
           <div className="absolute inset-0">
             <img
@@ -105,7 +105,7 @@ export default function HomeView() {
             </div>
           )}
         </div>
-      </div>
+      </div> */}
 
       {/* HOW IT WORKS */}
       <section className="py-28 px-6">
