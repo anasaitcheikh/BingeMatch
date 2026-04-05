@@ -53,20 +53,20 @@ function discoverUrl(
     action: "discover",
     mediaType,
     sortBy: opts.sortBy || "vote_average.desc",
-    minVotes: String(opts.minVotes ?? 150),
-    minScore: String(opts.minScore ?? 6.0),
+    minVotes: String(opts.minVotes ?? 100),
+    minScore: String(opts.minScore ?? 5.5),
     page: String(opts.page ?? 1),
   });
-  if (opts.genre)          p.set("genres", String(opts.genre));
+  if (opts.genre)            p.set("genres", String(opts.genre));
   if (opts.keywords?.length) p.set("keywords", opts.keywords.join(","));
-  if (opts.yearFrom)       p.set("yearFrom", String(opts.yearFrom));
-  if (opts.yearTo)         p.set("yearTo", String(opts.yearTo));
-  if (opts.runtimeMin)     p.set("runtimeMin", String(opts.runtimeMin));
-  if (opts.runtimeMax)     p.set("runtimeMax", String(opts.runtimeMax));
+  if (opts.yearFrom)         p.set("yearFrom", String(opts.yearFrom));
+  if (opts.yearTo)           p.set("yearTo", String(opts.yearTo));
+  if (opts.runtimeMin)       p.set("runtimeMin", String(opts.runtimeMin));
+  if (opts.runtimeMax)       p.set("runtimeMax", String(opts.runtimeMax));
   return `/api/tmdb?${p.toString()}`;
 }
 
-// ── SCORING quiz : genre match prime sur la note ─────────────────────────────
+// ── QUIZ SCORING ──────────────────────────────────────────────────────────────
 function scoreQuizItem(
   item: MediaItem,
   requiredGenres: number[],
@@ -76,61 +76,15 @@ function scoreQuizItem(
 ): number {
   if (!item.poster_path) return 0;
   if (item.vote_average < minScore) return 0;
-
   const genres = item.genre_ids || [];
   if (hardExclude.some((g) => genres.includes(g))) return 0;
-
   const reqMatches = genres.filter((g) => requiredGenres.includes(g)).length;
-  if (reqMatches === 0) return 0; // ← pas de genre requis = éliminé
-
+  if (reqMatches === 0) return 0;
   const bonusMatches = genres.filter((g) => bonusGenres.includes(g)).length;
-
-  // Genre : 60%,  Note : 30%,  Popularité : 10%
   const genreScore  = (reqMatches * 2 + bonusMatches) / (requiredGenres.length * 2 + 1) * 60;
   const ratingScore = ((item.vote_average - minScore) / (10 - minScore)) * 30;
   const popScore    = Math.min((item.vote_count ?? 0) / 1000, 10);
-
   return genreScore + ratingScore + popScore;
-}
-
-// ── SCORING analyse : keywords + genres + note ───────────────────────────────
-function scoreAnalysisItem(
-  item: MediaItem,
-  genreWeights: Map<number, number>,
-  keywordWeights: Map<number, number>,
-  maxGenreWeight: number,
-  maxKeywordWeight: number,
-  minScore: number,
-  watchedIds: Set<number>
-): number {
-  if (!item.poster_path) return 0;
-  if (item.vote_average < minScore) return 0;
-  if (watchedIds.has(item.id)) return 0;
-
-  const genres   = item.genre_ids   || [];
-  const keywords = (item as any).keyword_ids as number[] || [];
-
-  // Score genre (40 pts max)
-  let genreScore = 0;
-  genres.forEach((gid) => {
-    genreScore += ((genreWeights.get(gid) || 0) / maxGenreWeight) * 40;
-  });
-
-  // Score keywords (40 pts max) — c'est ici que "avocat + corporatif" bat "drama générique"
-  let kwScore = 0;
-  keywords.forEach((kid) => {
-    kwScore += ((keywordWeights.get(kid) || 0) / Math.max(maxKeywordWeight, 1)) * 40;
-  });
-
-  // Si ni genre ni keyword ne matchent → éliminé
-  if (genreScore === 0 && kwScore === 0) return 0;
-
-  // Note (15 pts max)
-  const ratingScore = ((item.vote_average - minScore) / (10 - minScore)) * 15;
-  // Popularité (5 pts max)
-  const popScore = Math.min((item.vote_count ?? 0) / 2000, 5);
-
-  return genreScore + kwScore + ratingScore + popScore;
 }
 
 // ── QUIZ ENGINE ───────────────────────────────────────────────────────────────
@@ -143,23 +97,17 @@ async function buildQuizRecommendations(
   const era      = (answers.era as string)      || "any";
   const themes   = (answers.themes as string[]) || [];
   const rawType  = answers.mediaType as string;
-
   const isAnime  = rawType === "anime";
-  const mediaType: "movie" | "tv" =
-    rawType === "tv" || duration === "series" ? "tv" : "movie";
+  const mediaType: "movie" | "tv" = rawType === "tv" || duration === "series" ? "tv" : "movie";
 
   const requiredGenres = MOOD_TO_GENRES[mood]?.[mediaType] || MOOD_TO_GENRES.action[mediaType];
-  const bonusGenres    = themes
-    .flatMap((t) => MOOD_TO_GENRES[t]?.[mediaType] || [])
-    .filter((g) => !requiredGenres.includes(g));
-  const hardExclude = VIBE_EXCLUDE[vibe]?.[mediaType] || [];
-
-  const sortBy   = VIBE_SORT[vibe]      || "vote_average.desc";
-  const minVotes = VIBE_MIN_VOTES[vibe] || 150;
-  const minScore = DURATION_MIN_SCORE[duration] || 6.0;
-  const era_y    = ERA_YEARS[era] || {};
-  const runtime  = mediaType === "movie" ? DURATION_RUNTIME[duration] : {};
-
+  const bonusGenres    = themes.flatMap((t) => MOOD_TO_GENRES[t]?.[mediaType] || []).filter((g) => !requiredGenres.includes(g));
+  const hardExclude    = VIBE_EXCLUDE[vibe]?.[mediaType] || [];
+  const sortBy         = VIBE_SORT[vibe]      || "vote_average.desc";
+  const minVotes       = VIBE_MIN_VOTES[vibe] || 150;
+  const minScore       = DURATION_MIN_SCORE[duration] || 6.0;
+  const era_y          = ERA_YEARS[era] || {};
+  const runtime        = mediaType === "movie" ? DURATION_RUNTIME[duration] : {};
   const raw: MediaItem[] = [];
 
   if (isAnime) {
@@ -170,21 +118,16 @@ async function buildQuizRecommendations(
     raw.push(...(a1.results || []).map((r: MediaItem) => ({ ...r, media_type: "tv" })));
     raw.push(...(a2.results || []).map((r: MediaItem) => ({ ...r, media_type: "tv" })));
   } else {
-    // Un fetch par genre requis (évite le AND de TMDB)
     const fetches = requiredGenres.flatMap((gid) => [
       fetchJson(discoverUrl(mediaType, { genre: gid, sortBy, minVotes, minScore, ...era_y, ...(runtime || {}), page: 1 })),
       fetchJson(discoverUrl(mediaType, { genre: gid, sortBy, minVotes, minScore, ...era_y, ...(runtime || {}), page: 2 })),
       fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "popularity.desc", minVotes: 80, minScore: minScore - 0.5, ...era_y, page: 1 })),
     ]);
-
     const bonusFetches = bonusGenres.slice(0, 2).map((gid) =>
       fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "vote_average.desc", minVotes, minScore, ...era_y }))
     );
-
     const results = await Promise.all([...fetches, ...bonusFetches]);
-    results.forEach((d) => {
-      raw.push(...(d.results || []).map((r: MediaItem) => ({ ...r, media_type: mediaType })));
-    });
+    results.forEach((d) => raw.push(...(d.results || []).map((r: MediaItem) => ({ ...r, media_type: mediaType }))));
   }
 
   const scored = raw
@@ -193,15 +136,9 @@ async function buildQuizRecommendations(
     .sort((a, b) => b.score - a.score);
 
   const result = dedup(scored.map((x) => x.item), new Set()).slice(0, 24);
-
-  // Fallback si trop peu
   if (result.length < 6 && requiredGenres.length > 0) {
-    const fallback = await fetchJson(discoverUrl(mediaType, {
-      genre: requiredGenres[0], sortBy: "popularity.desc", minVotes: 50, minScore: 5.0,
-    }));
-    const fb = (fallback.results || [])
-      .map((r: MediaItem) => ({ ...r, media_type: mediaType }))
-      .filter((r: MediaItem) => r.poster_path);
+    const fallback = await fetchJson(discoverUrl(mediaType, { genre: requiredGenres[0], sortBy: "popularity.desc", minVotes: 50, minScore: 5.0 }));
+    const fb = (fallback.results || []).map((r: MediaItem) => ({ ...r, media_type: mediaType })).filter((r: MediaItem) => r.poster_path);
     return dedup([...result, ...fb], new Set()).slice(0, 24);
   }
   return result;
@@ -212,135 +149,168 @@ async function buildAnalysisRecommendations(
   watchedItems: MediaItem[]
 ): Promise<MediaItem[]> {
   const watchedIds = new Set(watchedItems.map((w) => w.id));
-
-  // ── 1. Construire le profil genre (pondéré par note + position) ─────────────
-  const genreWeights = new Map<number, number>();
-  const mediaTypeCount = { movie: 0, tv: 0 };
-
-  watchedItems.forEach((item) => {
-    const influence = item.vote_average || 7;
-    (item.genre_ids || []).forEach((gid, idx) => {
-      const w = influence * Math.pow(0.7, idx);
-      genreWeights.set(gid, (genreWeights.get(gid) || 0) + w);
+  const dominantType: "movie" | "tv" = (() => {
+    let tv = 0, movie = 0;
+    watchedItems.forEach((item) => {
+      if (item.media_type === "tv" || (!item.title && !!item.name)) tv++; else movie++;
     });
-    const isTV = item.media_type === "tv" || (!item.title && !!item.name);
-    if (isTV) mediaTypeCount.tv++;
-    else mediaTypeCount.movie++;
-  });
-
-  // ── 2. Récupérer les KEYWORDS de chaque item visionné ──────────────────────
-  //    C'est ici la vraie amélioration : "Suits" → keywords [avocat, cabinet d'avocats,
-  //    droit des entreprises, Manhattan, ...] qui permettent de trouver The Good Wife
-  const keywordWeights = new Map<number, number>();
-
-  const kwPromises = watchedItems.slice(0, 6).map(async (item) => {
-    const type: "movie" | "tv" =
-      item.media_type === "tv" || (!item.title && !!item.name) ? "tv" : "movie";
-    const influence = item.vote_average || 7;
-    try {
-      const data = await fetchJson(`/api/tmdb?action=keywords&mediaType=${type}&id=${item.id}`);
-      const kws: KeywordItem[] = data.keywords || [];
-      kws.forEach((kw, idx) => {
-        // Les premiers keywords sont plus représentatifs
-        const w = influence * Math.pow(0.8, idx);
-        keywordWeights.set(kw.id, (keywordWeights.get(kw.id) || 0) + w);
-      });
-      return kws.map((k) => k.id);
-    } catch {
-      return [];
-    }
-  });
-
-  const allKeywordArrays = await Promise.all(kwPromises);
-
-  // ── 3. Top keywords pour le discover par keywords ───────────────────────────
-  const topKeywords = Array.from(keywordWeights.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12) // top 12 keywords
-    .map(([id]) => id);
-
-  const topGenres = Array.from(genreWeights.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([id]) => id);
-
-  const dominantType: "movie" | "tv" =
-    mediaTypeCount.tv > mediaTypeCount.movie ? "tv" : "movie";
+    return tv > movie ? "tv" : "movie";
+  })();
 
   const avgScore = watchedItems.reduce((s, i) => s + i.vote_average, 0) / watchedItems.length;
   const minScore = Math.max(5.5, avgScore - 2.0);
 
+  // ── ÉTAPE 1 : Récupérer les keywords de CHAQUE item visionné ──────────────
+  // C'est la clé : Suits → [lawyer, law firm, legal drama, ...]
+  //                Breaking Bad → [drug dealer, chemistry, ...]
+  // => 0 keywords en commun => Breaking Bad ne pourra jamais scorer
+  const itemKeywords: Map<number, number[]> = new Map();
+
+  await Promise.all(
+    watchedItems.slice(0, 6).map(async (item) => {
+      const type: "movie" | "tv" = item.media_type === "tv" || (!item.title && !!item.name) ? "tv" : "movie";
+      const data = await fetchJson(`/api/tmdb?action=keywords&mediaType=${type}&id=${item.id}`);
+      const kws: KeywordItem[] = data.keywords || [];
+      itemKeywords.set(item.id, kws.map((k) => k.id));
+    })
+  );
+
+  // ── ÉTAPE 2 : Construire les poids keywords (fréquence pondérée par note) ─
+  const keywordWeights = new Map<number, number>();
+  watchedItems.forEach((item) => {
+    const influence = item.vote_average || 7;
+    const kws = itemKeywords.get(item.id) || [];
+    kws.forEach((kid, idx) => {
+      // Décroissance : les premiers keywords sont plus représentatifs
+      const w = influence * Math.pow(0.85, idx);
+      keywordWeights.set(kid, (keywordWeights.get(kid) || 0) + w);
+    });
+  });
+
+  // Keywords qui apparaissent dans PLUSIEURS items visionnés = très représentatifs
+  const sharedKeywords = Array.from(keywordWeights.entries())
+    .filter(([, w]) => w > (watchedItems[0]?.vote_average || 7)) // aparaît dans 2+ items
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([id]) => id);
+
+  const topKeywords = Array.from(keywordWeights.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([id]) => id);
+
+  // ── ÉTAPE 3 : Poids genres ─────────────────────────────────────────────────
+  const genreWeights = new Map<number, number>();
+  watchedItems.forEach((item) => {
+    const influence = item.vote_average || 7;
+    (item.genre_ids || []).forEach((gid, idx) => {
+      genreWeights.set(gid, (genreWeights.get(gid) || 0) + influence * Math.pow(0.7, idx));
+    });
+  });
+  const topGenres = Array.from(genreWeights.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => id);
   const maxGenreWeight   = Math.max(...Array.from(genreWeights.values()), 1);
   const maxKeywordWeight = Math.max(...Array.from(keywordWeights.values()), 1);
 
-  // ── 4. Fetches parallèles ───────────────────────────────────────────────────
-  const raw: MediaItem[] = [];
+  // ── ÉTAPE 4 : Sources de candidats ────────────────────────────────────────
+  //
+  // PRIORITÉ 1 : Discover par keywords partagés (le plus précis)
+  //   → Pour Suits : trouve The Good Wife, Damages, Boston Legal, etc.
+  //   → Exclut Breaking Bad car il n'a pas les keywords "lawyer", "law firm"
+  //
+  // PRIORITÉ 2 : recommendations/similar TMDB (bon mais trop large)
+  //   → On les inclut mais avec un scoring plus strict
+  //
+  // PRIORITÉ 3 : Discover par genre (filet de sécurité)
 
-  // A. TMDB recommendations + similar pour chaque item (meilleur signal direct)
-  const directPromises = watchedItems.slice(0, 5).flatMap((item) => {
-    const type: "movie" | "tv" =
-      item.media_type === "tv" || (!item.title && !!item.name) ? "tv" : "movie";
-    return [
+  const fetchPromises: Promise<MediaItem[]>[] = [];
+
+  // P1 : Keywords partagés (mode OR dans TMDB — au moins 1 keyword doit matcher)
+  if (sharedKeywords.length > 0) {
+    fetchPromises.push(
+      fetchJson(discoverUrl(dominantType, { keywords: sharedKeywords.slice(0, 8), sortBy: "vote_average.desc", minVotes: 50, minScore }))
+        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType, _source: "kw_shared" }))),
+      fetchJson(discoverUrl(dominantType, { keywords: sharedKeywords.slice(0, 8), sortBy: "popularity.desc", minVotes: 30, minScore }))
+        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType, _source: "kw_shared" }))),
+    );
+  }
+
+  // P1b : Top keywords (plus large)
+  if (topKeywords.length > 0) {
+    fetchPromises.push(
+      fetchJson(discoverUrl(dominantType, { keywords: topKeywords.slice(0, 10), sortBy: "vote_average.desc", minVotes: 50, minScore }))
+        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType, _source: "kw_top" }))),
+    );
+  }
+
+  // P2 : recommendations + similar TMDB
+  watchedItems.slice(0, 4).forEach((item) => {
+    const type: "movie" | "tv" = item.media_type === "tv" || (!item.title && !!item.name) ? "tv" : "movie";
+    fetchPromises.push(
       fetchJson(`/api/tmdb?action=recommendations&mediaType=${type}&id=${item.id}`)
-        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: type }))),
+        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: type, _source: "tmdb_rec" }))),
       fetchJson(`/api/tmdb?action=similar&mediaType=${type}&id=${item.id}`)
-        .then((d: any) => (d.results || []).slice(0, 10).map((r: MediaItem) => ({ ...r, media_type: type }))),
-    ];
+        .then((d: any) => (d.results || []).slice(0, 8).map((r: MediaItem) => ({ ...r, media_type: type, _source: "tmdb_sim" }))),
+    );
   });
 
-  // B. Discover par keywords (le vrai différenciateur : "avocat" → The Good Wife, Lincoln Lawyer)
-  const keywordFetches = topKeywords.length > 0 ? [
-    fetchJson(discoverUrl(dominantType, {
-      keywords: topKeywords.slice(0, 6),
-      sortBy: "vote_average.desc",
-      minVotes: 100,
-      minScore,
-    })).then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType }))),
-    fetchJson(discoverUrl(dominantType, {
-      keywords: topKeywords.slice(0, 6),
-      sortBy: "popularity.desc",
-      minVotes: 50,
-      minScore,
-    })).then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType }))),
-    // Deuxième groupe de keywords pour plus de diversité
-    topKeywords.length > 6 ? fetchJson(discoverUrl(dominantType, {
-      keywords: topKeywords.slice(6, 12),
-      sortBy: "vote_average.desc",
-      minVotes: 100,
-      minScore,
-    })).then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType }))) : Promise.resolve([]),
-  ] : [];
-
-  // C. Discover par genres (filet de sécurité)
-  const genreFetches = topGenres.slice(0, 2).flatMap((gid) => [
-    fetchJson(discoverUrl(dominantType, {
-      genre: gid, sortBy: "vote_average.desc", minVotes: 300, minScore, page: 1,
-    })).then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType }))),
-    fetchJson(discoverUrl(dominantType, {
-      genre: gid, sortBy: "popularity.desc", minVotes: 100, minScore, page: 1,
-    })).then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType }))),
-  ]);
-
-  const allFetches = await Promise.all([...directPromises, ...keywordFetches, ...genreFetches]);
-  allFetches.forEach((arr) => {
-    if (Array.isArray(arr)) raw.push(...arr);
+  // P3 : Discover par genre (filet)
+  topGenres.slice(0, 2).forEach((gid) => {
+    fetchPromises.push(
+      fetchJson(discoverUrl(dominantType, { genre: gid, sortBy: "vote_average.desc", minVotes: 200, minScore, page: 1 }))
+        .then((d: any) => (d.results || []).map((r: MediaItem) => ({ ...r, media_type: dominantType, _source: "genre" }))),
+    );
   });
 
-  // ── 5. Scoring : keywords + genres, la note ne départage qu'à la fin ────────
+  const allArrays = await Promise.all(fetchPromises);
+  const raw: MediaItem[] = [];
+  allArrays.forEach((arr) => { if (Array.isArray(arr)) raw.push(...arr); });
+
+  // ── ÉTAPE 5 : Scoring keyword-first ───────────────────────────────────────
+  //
+  // Formule :
+  //   keyword_score (50 pts max) — basé sur les keywords partagés avec les items visionnés
+  //   genre_score   (30 pts max) — basé sur les genres
+  //   note          (15 pts max) — secondaire
+  //   popularité    ( 5 pts max) — tie-breaker
+  //
+  // Un item sans AUCUN keyword commun peut quand même passer si genre_score > 0,
+  // mais il sera toujours derrière un item avec des keywords communs.
+  //
+  // Breaking Bad : genre Drama+Crime = genre_score ~20, keyword_score = 0
+  // The Good Wife : genre Drama+Crime = genre_score ~20, keyword "lawyer" = keyword_score ~40
+  // → The Good Wife score ≈ 75,  Breaking Bad score ≈ 35  → Breaking Bad relégué
+
   const scored = raw
     .filter((item) => item.poster_path && item.vote_average >= minScore && !watchedIds.has(item.id))
-    .map((item) => ({
-      item,
-      score: scoreAnalysisItem(
-        item,
-        genreWeights,
-        keywordWeights,
-        maxGenreWeight,
-        maxKeywordWeight,
-        minScore,
-        watchedIds
-      ),
-    }))
+    .map((item) => {
+      const genres = (item.genre_ids || []);
+
+      // Genre score
+      let genreScore = 0;
+      genres.forEach((gid) => {
+        genreScore += ((genreWeights.get(gid) || 0) / maxGenreWeight) * 30;
+      });
+
+      // Keyword score — on n'a pas les keywords des résultats directement,
+      // mais les items venant des fetches keyword (kw_shared, kw_top) ont déjà
+      // été filtrés par TMDB pour avoir au moins un keyword cible.
+      // On leur donne un bonus de source + score proportionnel aux genres communs.
+      const source = (item as any)._source || "genre";
+      let kwBonus = 0;
+      if (source === "kw_shared") kwBonus = 50; // keywords partagés entre plusieurs items visionnés
+      else if (source === "kw_top") kwBonus = 35; // keywords top mais peut-être pas partagés
+      else if (source === "tmdb_rec") kwBonus = 20; // recommendations TMDB
+      else if (source === "tmdb_sim") kwBonus = 15; // similar TMDB
+      else kwBonus = 0; // genre discover seul → pas de bonus keyword
+
+      // Éliminer si aucun signal (ni keyword ni genre)
+      if (genreScore === 0 && kwBonus === 0) return { item, score: 0 };
+
+      const ratingScore = ((item.vote_average - minScore) / (10 - minScore)) * 15;
+      const popScore    = Math.min((item.vote_count ?? 0) / 2000, 5);
+
+      return { item, score: kwBonus + genreScore + ratingScore + popScore };
+    })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 
@@ -349,8 +319,7 @@ async function buildAnalysisRecommendations(
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { currentView, setView, setRecommendations, setRecommendationSource, addToHistory } =
-    useAppStore();
+  const { currentView, setView, setRecommendations, setRecommendationSource, addToHistory } = useAppStore();
   const [loading, setLoading]       = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("Analyse en cours...");
 
