@@ -33,7 +33,7 @@ export default function Navbar() {
           className="flex items-center gap-2 group"
         >
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-[#c1121f] flex items-center justify-center text-white font-bold text-sm group-hover:scale-110 transition-transform">
-            C
+            BM
           </div>
           <span
             className="text-2xl font-bold tracking-wider text-white"
