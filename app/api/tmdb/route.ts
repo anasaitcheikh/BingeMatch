@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getTrending, searchMulti, discoverPrecise,
   getSimilar, getRecommendations, getPopularAnime,
-  getMovieDetails, getTVDetails,
+  getMovieDetails, getTVDetails, getKeywords,
 } from "@/lib/tmdb";
 
 export async function GET(req: NextRequest) {
@@ -26,18 +26,20 @@ export async function GET(req: NextRequest) {
         const mediaType = (searchParams.get("mediaType") || "movie") as "movie" | "tv";
         const genres = searchParams.get("genres") || "";
         const excludeGenres = searchParams.get("excludeGenres") || "";
+        const keywords = searchParams.get("keywords") || "";
         const sortBy = searchParams.get("sortBy") || "vote_average.desc";
-        const minVotes = Number(searchParams.get("minVotes") || "300");
-        const minScore = Number(searchParams.get("minScore") || "6.5");
+        const minVotes = Number(searchParams.get("minVotes") || "200");
+        const minScore = Number(searchParams.get("minScore") || "6.0");
         const yearFrom = searchParams.get("yearFrom") ? Number(searchParams.get("yearFrom")) : undefined;
-        const yearTo = searchParams.get("yearTo") ? Number(searchParams.get("yearTo")) : undefined;
+        const yearTo   = searchParams.get("yearTo")   ? Number(searchParams.get("yearTo"))   : undefined;
         const runtimeMin = searchParams.get("runtimeMin") ? Number(searchParams.get("runtimeMin")) : undefined;
         const runtimeMax = searchParams.get("runtimeMax") ? Number(searchParams.get("runtimeMax")) : undefined;
         const page = Number(searchParams.get("page") || "1");
 
         return NextResponse.json(await discoverPrecise(mediaType, {
-          genreIds: genres ? genres.split(",").map(Number) : [],
+          genreIds:        genres       ? genres.split(",").map(Number)       : [],
           withoutGenreIds: excludeGenres ? excludeGenres.split(",").map(Number) : [],
+          withKeywords:    keywords     ? keywords.split(",").map(Number)     : [],
           sortBy, minVotes, minScore, yearFrom, yearTo, page,
           runtime: { min: runtimeMin, max: runtimeMax },
         }));
@@ -55,6 +57,13 @@ export async function GET(req: NextRequest) {
         const id = Number(searchParams.get("id"));
         if (!id) return NextResponse.json({ results: [] });
         return NextResponse.json(await getRecommendations(mediaType, id));
+      }
+
+      case "keywords": {
+        const mediaType = (searchParams.get("mediaType") || "tv") as "movie" | "tv";
+        const id = Number(searchParams.get("id"));
+        if (!id) return NextResponse.json({ results: [], keywords: [] });
+        return NextResponse.json(await getKeywords(mediaType, id));
       }
 
       case "details": {
