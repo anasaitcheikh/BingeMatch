@@ -120,7 +120,7 @@ export const useAppStore = create<AppStore>()(
       setSearchQuery: (q) => set({ searchQuery: q }),
     }),
     {
-      name: "cineai-storage",
+      name: "bingematch-storage",
       partialize: (s) => ({
         likedItems: s.likedItems,
         dislikedIds: s.dislikedIds,

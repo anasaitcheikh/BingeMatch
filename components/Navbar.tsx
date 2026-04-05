@@ -39,7 +39,7 @@ export default function Navbar() {
             className="text-2xl font-bold tracking-wider text-white"
             style={{ fontFamily: "var(--font-display, 'Bebas Neue'), sans-serif", letterSpacing: "0.05em" }}
           >
-            CINE<span className="gradient-text-fire">AI</span>
+            BINGE<span className="gradient-text-fire">MATCH</span>
           </span>
         </button>
 

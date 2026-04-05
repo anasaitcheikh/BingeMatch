@@ -230,13 +230,13 @@ export default function HomeView() {
       <footer className="py-10 px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <span className="text-xl font-bold tracking-wider" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
-            CINE<span className="gradient-text-fire">AI</span>
+            BINGE<span className="gradient-text-fire">MATCH</span>
           </span>
           <p className="text-white/20 text-sm text-center">
             Propulsé par l'IA · Données fournies par{" "}
             <a href="https://www.themoviedb.org" target="_blank" rel="noopener" className="text-white/40 hover:text-white/70 transition-colors">TMDB</a>
           </p>
-          <span className="text-white/20 text-sm">© 2025 CineAI</span>
+          <span className="text-white/20 text-sm">© 2025 BingeMatch</span>
         </div>
       </footer>
     </div>
