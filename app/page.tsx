@@ -13,6 +13,8 @@ import QuizView from "@/components/QuizView";
 import AnalysisView from "@/components/AnalysisView";
 import ResultsView from "@/components/ResultsView";
 import LoadingScreen from "@/components/LoadingScreen";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -374,6 +376,7 @@ export default function App() {
           {currentView === "results"  && <ResultsView onReset={() => setView("home")} />}
         </>
       )}
+      <PWAInstallPrompt />
     </>
   );
 }
