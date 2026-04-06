@@ -7,6 +7,7 @@ import {
   MOOD_TO_GENRES, VIBE_EXCLUDE, VIBE_SORT, VIBE_MIN_VOTES,
   ERA_YEARS, DURATION_RUNTIME, DURATION_MIN_SCORE,
 } from "@/lib/tmdb";
+import { ANSWER_GENRE_MAP } from "@/components/QuizView";
 import Navbar from "@/components/Navbar";
 import HomeView from "@/components/HomeView";
 import QuizView from "@/components/QuizView";
@@ -89,57 +90,132 @@ function scoreQuizItem(
 }
 
 // ── QUIZ ENGINE ───────────────────────────────────────────────────────────────
+// Lit les 8 réponses psychologiques et les traduit en genres TMDB pondérés
 async function buildQuizRecommendations(
   answers: Record<string, string | string[]>
 ): Promise<MediaItem[]> {
-  const mood     = (answers.mood as string)     || "action";
-  const vibe     = (answers.vibe as string)     || "intense";
-  const duration = (answers.duration as string) || "medium";
-  const era      = (answers.era as string)      || "any";
-  const themes   = (answers.themes as string[]) || [];
-  const rawType  = answers.mediaType as string;
-  const isAnime  = rawType === "anime";
-  const mediaType: "movie" | "tv" = rawType === "tv" || duration === "series" ? "tv" : "movie";
 
-  const requiredGenres = MOOD_TO_GENRES[mood]?.[mediaType] || MOOD_TO_GENRES.action[mediaType];
-  const bonusGenres    = themes.flatMap((t) => MOOD_TO_GENRES[t]?.[mediaType] || []).filter((g) => !requiredGenres.includes(g));
-  const hardExclude    = VIBE_EXCLUDE[vibe]?.[mediaType] || [];
-  const sortBy         = VIBE_SORT[vibe]      || "vote_average.desc";
-  const minVotes       = VIBE_MIN_VOTES[vibe] || 150;
-  const minScore       = DURATION_MIN_SCORE[duration] || 6.0;
-  const era_y          = ERA_YEARS[era] || {};
-  const runtime        = mediaType === "movie" ? DURATION_RUNTIME[duration] : {};
+  // ── 1. Déterminer le format / media type ──────────────────────────────────
+  const formatAnswer = answers.format as string || "format_indiff";
+  const isAnime = formatAnswer === "format_anime";
+  const isMovie = formatAnswer === "format_film_court" || formatAnswer === "format_film_long";
+  const isSeries = formatAnswer === "format_serie_mini" || formatAnswer === "format_serie_longue";
+  const mediaType: "movie" | "tv" = isSeries ? "tv" : isMovie ? "movie" : "movie";
+
+  // ── 2. Durée / runtime selon le format ────────────────────────────────────
+  let runtimeMin: number | undefined;
+  let runtimeMax: number | undefined;
+  let minVotes = 150;
+  let minScore = 6.0;
+
+  if (formatAnswer === "format_film_court") { runtimeMax = 95; }
+  else if (formatAnswer === "format_film_long") { runtimeMin = 110; minVotes = 200; minScore = 6.5; }
+  else if (formatAnswer === "format_serie_mini") { minScore = 6.5; }
+  else if (formatAnswer === "format_serie_longue") { minScore = 7.0; minVotes = 300; }
+
+  // ── 3. Agréger les genres depuis TOUTES les réponses ──────────────────────
+  // Chaque réponse vote pour des genres — on compte les votes
+  const genreVotes = new Map<number, number>();
+
+  const questionKeys = ["soiree", "perso", "fin", "univers", "rythme", "emotion", "visuel"];
+  questionKeys.forEach((key, questionIdx) => {
+    const answerValue = answers[key] as string;
+    if (!answerValue) return;
+    const mapping = ANSWER_GENRE_MAP[answerValue];
+    if (!mapping) return;
+
+    const genres = mediaType === "tv" ? mapping.tv : mapping.movie;
+    genres.forEach((gid, genreIdx) => {
+      // Questions de début (soirée, personnage) pèsent plus — elles capturent l'intention principale
+      const questionWeight = questionIdx <= 2 ? 3 : questionIdx <= 4 ? 2 : 1;
+      // Premiers genres dans la liste pèsent plus
+      const positionWeight = Math.pow(0.75, genreIdx);
+      const vote = questionWeight * positionWeight;
+      genreVotes.set(gid, (genreVotes.get(gid) || 0) + vote);
+    });
+  });
+
+  // ── 4. Top genres par votes ───────────────────────────────────────────────
+  const sortedGenres = Array.from(genreVotes.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([id]) => id);
+
+  const primaryGenres = sortedGenres.slice(0, 2);   // genres dominants
+  const secondaryGenres = sortedGenres.slice(2, 5); // genres secondaires
+
+  // Genres peu représentatifs à exclure (évite la pollution)
+  // Ex: si quelqu'un veut du thriller/mystery, on exclut comédie pour enfants
+  const hardExclude: number[] = [];
+  const topGenreSet = new Set(sortedGenres.slice(0, 4));
+  // Si drama/romance dominent → exclure horreur et action brute
+  if (topGenreSet.has(18) || topGenreSet.has(10749)) {
+    if (!topGenreSet.has(27)) hardExclude.push(27); // pas horreur
+    if (!topGenreSet.has(28)) hardExclude.push(10751); // pas film famille
+  }
+  // Si action/aventure dominent → exclure romance pure
+  if (topGenreSet.has(28) || topGenreSet.has(10759)) {
+    if (!topGenreSet.has(10749)) hardExclude.push(10749);
+  }
+
+  // ── 5. Fetch parallèle : un fetch par genre principal ─────────────────────
   const raw: MediaItem[] = [];
 
   if (isAnime) {
     const [a1, a2] = await Promise.all([
       fetchJson("/api/tmdb?action=anime"),
-      fetchJson(discoverUrl("tv", { genre: 16, sortBy: "vote_average.desc", minVotes: 200, minScore: 7.0, ...era_y })),
+      fetchJson(discoverUrl("tv", { genre: 16, sortBy: "vote_average.desc", minVotes: 200, minScore: 7.0 })),
     ]);
     raw.push(...(a1.results || []).map((r: MediaItem) => ({ ...r, media_type: "tv" })));
     raw.push(...(a2.results || []).map((r: MediaItem) => ({ ...r, media_type: "tv" })));
   } else {
-    const fetches = requiredGenres.flatMap((gid) => [
-      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy, minVotes, minScore, ...era_y, ...(runtime || {}), page: 1 })),
-      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy, minVotes, minScore, ...era_y, ...(runtime || {}), page: 2 })),
-      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "popularity.desc", minVotes: 80, minScore: minScore - 0.5, ...era_y, page: 1 })),
+    const allFetchGenres = [...primaryGenres, ...secondaryGenres.slice(0, 2)];
+    const fetches = allFetchGenres.flatMap((gid) => [
+      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "vote_average.desc", minVotes, minScore, runtimeMin, runtimeMax, page: 1 })),
+      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "popularity.desc", minVotes: 80, minScore: minScore - 0.5, runtimeMin, runtimeMax, page: 1 })),
+      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "vote_average.desc", minVotes, minScore, runtimeMin, runtimeMax, page: 2 })),
     ]);
-    const bonusFetches = bonusGenres.slice(0, 2).map((gid) =>
-      fetchJson(discoverUrl(mediaType, { genre: gid, sortBy: "vote_average.desc", minVotes, minScore, ...era_y }))
-    );
-    const results = await Promise.all([...fetches, ...bonusFetches]);
+    const results = await Promise.all(fetches);
     results.forEach((d) => raw.push(...(d.results || []).map((r: MediaItem) => ({ ...r, media_type: mediaType }))));
   }
 
+  // ── 6. Scoring pondéré par votes de genres ────────────────────────────────
+  const maxVotes = Math.max(...Array.from(genreVotes.values()), 1);
+
   const scored = raw
-    .map((item) => ({ item, score: scoreQuizItem(item, requiredGenres, bonusGenres, hardExclude, minScore - 0.5) }))
+    .filter((item) => item.poster_path && item.vote_average >= minScore - 0.5)
+    .map((item) => {
+      const genres = item.genre_ids || [];
+
+      // Exclusion dure
+      if (hardExclude.some((g) => genres.includes(g))) return { item, score: 0 };
+
+      // Score genre : somme des votes normalisés pour chaque genre présent
+      let genreScore = 0;
+      genres.forEach((gid) => {
+        genreScore += ((genreVotes.get(gid) || 0) / maxVotes) * 60;
+      });
+      if (genreScore === 0) return { item, score: 0 };
+
+      // Note (secondaire, max 30 pts)
+      const ratingScore = ((item.vote_average - (minScore - 0.5)) / (10 - (minScore - 0.5))) * 30;
+      // Popularité tie-breaker (max 10 pts)
+      const popScore = Math.min((item.vote_count ?? 0) / 1000, 10);
+
+      return { item, score: genreScore + ratingScore + popScore };
+    })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 
   const result = dedup(scored.map((x) => x.item), new Set()).slice(0, 24);
-  if (result.length < 6 && requiredGenres.length > 0) {
-    const fallback = await fetchJson(discoverUrl(mediaType, { genre: requiredGenres[0], sortBy: "popularity.desc", minVotes: 50, minScore: 5.0 }));
-    const fb = (fallback.results || []).map((r: MediaItem) => ({ ...r, media_type: mediaType })).filter((r: MediaItem) => r.poster_path);
+
+  // Fallback si résultats insuffisants
+  if (result.length < 6 && primaryGenres.length > 0) {
+    const fallback = await fetchJson(discoverUrl(mediaType, {
+      genre: primaryGenres[0], sortBy: "popularity.desc", minVotes: 50, minScore: 5.5,
+    }));
+    const fb = (fallback.results || [])
+      .map((r: MediaItem) => ({ ...r, media_type: mediaType }))
+      .filter((r: MediaItem) => r.poster_path);
     return dedup([...result, ...fb], new Set()).slice(0, 24);
   }
   return result;
