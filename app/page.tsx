@@ -14,7 +14,6 @@ import AnalysisView from "@/components/AnalysisView";
 import ResultsView from "@/components/ResultsView";
 import LoadingScreen from "@/components/LoadingScreen";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
-import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
